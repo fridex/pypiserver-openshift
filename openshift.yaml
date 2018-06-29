@@ -1,0 +1,149 @@
+apiVersion: v1
+kind: Template
+labels:
+  template: PyPI
+metadata:
+  name: PyPI
+  annotations:
+    description: PyPI private index
+    openshift.io/display-name: 'PyPI private index'
+    version: 1.0.0
+    tags: poc,python,packages
+    template.openshift.io/documentation-url: https://github.com/fridex/pypi-openshift
+    template.openshift.io/long-description: >
+      This template defines PyPI index running in OpenShift.
+    template.openshift.io/provider-display-name: Red Hat, Inc.
+
+objects:
+  - kind: Route
+    apiVersion: v1
+    metadata:
+      name: pypi
+      namespace: ${PYPI_SERVER_NAMESPACE}
+      labels:
+        app: pypi
+    spec:
+      to:
+        kind: Service
+        name: pypi
+
+  - kind: Service
+    apiVersion: v1
+    metadata:
+      labels:
+        service: pypi
+        app: pypi
+      name: pypi
+      namespace: ${PYPI_SERVER_NAMESPACE}
+    spec:
+      ports:
+        - port: 80
+          protocol: TCP
+          targetPort: 8080
+      selector:
+        service: pypi
+
+  - apiVersion: v1
+    kind: DeploymentConfig
+    metadata:
+      labels:
+        service: pypi
+        app: pypi
+      name: pypi
+      namespace: ${PYPI_SERVER_NAMESPACE}
+    spec:
+      replicas: 1
+      selector:
+        service: pypi
+      template:
+        metadata:
+          labels:
+            service: pypi
+        spec:
+          containers:
+            - name: pypi-server
+              ports:
+                - containerPort: 8080
+                  protocol: TCP
+              resources:
+                requests:
+                  memory: "255Mi"
+                  cpu: "250m"
+                limits:
+                  memory: "256Mi"
+                  cpu: "250m"
+              readinessProbe:
+                httpGet:
+                  path: '/'
+                  port: 8080
+                  scheme: HTTP
+                initialDelaySeconds: 5
+                periodSeconds: 10
+                timeoutSeconds: 10
+              livenessProbe:
+                httpGet:
+                  path: '/'
+                  port: 8080
+                  scheme: HTTP
+                initialDelaySeconds: 5
+                periodSeconds: 60
+                timeoutSeconds: 10
+      test: false
+      triggers:
+        - type: ConfigChange
+        - type: ImageChange
+          imageChangeParams:
+            automatic: true
+            containerNames:
+              - pypi-server
+            from:
+              kind: ImageStreamTag
+              name: 'pypi-server:latest'
+
+  - kind: ImageStream
+    apiVersion: v1
+    metadata:
+      labels:
+        app: pypi
+      name: pypi-server
+      namespace: ${PYPI_SERVER_NAMESPACE}
+    spec:
+      name: latest
+
+  - apiVersion: v1
+    kind: BuildConfig
+    metadata:
+      labels:
+        app: pypi
+      name: pypi
+    spec:
+      resources:
+        requests:
+          memory: "500Mi"
+          cpu: "500m"
+        limits:
+          memory: "1000Mi"
+          cpu: "1000m"
+      output:
+        to:
+          kind: ImageStreamTag
+          name: "pypi-server:latest"
+      runPolicy: Serial
+      source:
+        type: Git
+        git:
+          uri: https://github.com/fridex/pypiserver-openshift
+          ref: master
+      strategy:
+        type: Docker
+        dockerStrategy:
+          dockerfilePath: Dockerfile
+      triggers:
+      - imageChange: {}
+        type: ImageChange
+
+parameters:
+  - displayName: PyPI service namespace
+    description: PyPI service namespace
+    required: true
+    name: PYPI_SERVER_NAMESPACE
